@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: calbot
+  name: calbot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: calbot
+  template:
+    metadata:
+      labels:
+        app: calbot
+    spec:
+      containers:
+      - name: calbot
+        image: us-south1-docker.pkg.dev/homelab-388417/homelab/calbot:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: web
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: web
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: web
+      imagePullSecrets:
+      - name: regcred
