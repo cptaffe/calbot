@@ -25,6 +25,7 @@ var timePattern = regexp.MustCompile(`([1-9][0-2]*(:[0-6][0-9])?([ 	]*((a|p).m.)
 
 var singleDayTimePattern = regexp.MustCompile(`(([1-9][0-2]*(:[0-6][0-9])?)([ 	]*((a|p)\.?m\.?)?[ 	]*(-|–)[ 	]*([1-9][0-2]*(:[0-6][0-9])?))?[ 	]+(a|p)\.?m\.?)`)
 var linkTextPattern = regexp.MustCompile(`Learn more here.?`)
+var locationTextPattern = regexp.MustCompile(`(.*) (at|in) (the )?(.*)`)
 
 var templatesPath = flag.String("templates", "", "path to templates")
 var address = flag.String("address", ":8080", "address to listen on, :8080 by default")
@@ -46,6 +47,7 @@ type Event struct {
 	Body        strings.Builder
 	Description string
 	Link        string
+	Location    string
 }
 
 type Parser struct {
@@ -98,7 +100,6 @@ func parseWeekday(weekday string) int {
 
 func (p *Parser) Peek() html.TokenType {
 	if p.tt != nil {
-		fmt.Println("peek: peeked")
 		return *p.tt
 	}
 	tt := p.next()
@@ -154,6 +155,7 @@ func (p *Parser) ParseRoot() ParserFunc {
 	}
 }
 
+// ParseHeader consumes an <h*> tag, and forwards to ParseSection
 func (p *Parser) ParseHeader() ParserFunc {
 	var s string
 	z := p.tokenizer
@@ -203,7 +205,6 @@ func (p *Parser) ParseSection() ParserFunc {
 				p.headerTag = tn
 				return p.ParseHeader
 			case "p":
-
 				p.event = &Event{Dates: p.dates}
 				return p.ParseParagraph
 			}
@@ -211,6 +212,9 @@ func (p *Parser) ParseSection() ParserFunc {
 	}
 }
 
+// ParseParagraph consumes a <p> tag, parsing <a> and <b> tags,
+// formatting <li> tags, and ignoring <ul>, <span>, and <div>.
+// All other tags signal a </p> and the Event is emitted.
 func (p *Parser) ParseParagraph() ParserFunc {
 	z := p.tokenizer
 	for {
@@ -233,7 +237,7 @@ func (p *Parser) ParseParagraph() ParserFunc {
 				return p.ParseLink
 			case "li":
 				fmt.Fprintf(&p.event.Body, "- ")
-			case "span", "div":
+			case "ul", "span", "div":
 				// ignore
 			default:
 				p.Events <- p.event
@@ -251,6 +255,8 @@ func (p *Parser) ParseParagraph() ParserFunc {
 	}
 }
 
+// ParseLink consumes an <a> tag and writes its content to the
+// event Body, followed by the parenthesized contents of the href attribute.
 func (p *Parser) ParseLink() ParserFunc {
 	z := p.tokenizer
 	var href string
@@ -303,6 +309,8 @@ func (p *Parser) ParseLink() ParserFunc {
 	}
 }
 
+// ParseBold consumes a <b> tag and writes the contents either
+// to an unpopulated event Title, or appends to its Body.
 func (p *Parser) ParseBold() ParserFunc {
 	z := p.tokenizer
 	for {
@@ -361,6 +369,12 @@ func finalize(events chan *Event) chan *Event {
 			if event.Title == "" {
 				continue
 			}
+			match := locationTextPattern.FindAllStringSubmatch(event.Title, 1)
+			if match != nil {
+				event.Title = match[0][1]
+				event.Location = match[0][4]
+			}
+
 			event.Description = event.Body.String()
 
 			if event.Dates.End.IsZero() {

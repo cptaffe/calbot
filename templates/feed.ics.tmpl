@@ -15,43 +15,47 @@ REFRESH-INTERVAL;VALUE=DURATION:PT1H
 {{- if .Times -}}
 {{- range .Times }}
 BEGIN:VEVENT
+UID:{{ uuid }}
+SUMMARY:{{ $event.Title }}
+DESCRIPTION:{{ escape $event.Body.String | wrap }}
 DTSTART;VALUE=DATE-TIME;TZID=America/Chicago:{{ time .Start }}
 {{- if not .End.IsZero }}
 DTEND;VALUE=DATE-TIME;TZID=America/Chicago:{{ time .End }}
 {{- end }}
-DTSTAMP:{{ time now }}
-UID:{{ uuid }}
-CREATED:{{ time now }}
-DESCRIPTION:{{ escape $event.Body.String | wrap }}
 {{- if $event.Link }}
 URL:{{ $event.Link }}
 {{- end }}
+{{- if $event.Location }}
+LOCATION:{{ $event.Location }}
+{{- end }}
+DTSTAMP:{{ time now }}
+CREATED:{{ time now }}
 LAST-MODIFIED:{{ time now }}
-LOCATION:
 SEQUENCE:0
 STATUS:CONFIRMED
-SUMMARY:{{ $event.Title }}
 TRANSP:OPAQUE
 END:VEVENT
 {{- end -}}
 {{- else }}
 BEGIN:VEVENT
+UID:{{ uuid }}
+SUMMARY:{{.Title}}
+DESCRIPTION:{{ escape .Body.String | wrap }}
 DTSTART;VALUE=DATE;TZID=America/Chicago:{{ date .Dates.Start }}
 {{- if not .Dates.End.IsZero }}
 DTEND;VALUE=DATE;TZID=America/Chicago:{{ date .Dates.End }}
 {{- end }}
-DTSTAMP:{{ time now }}
-UID:{{ uuid }}
-CREATED:{{ time now }}
-DESCRIPTION:{{ escape .Body.String | wrap }}
 {{- if .Link }}
 URL:{{ .Link }}
 {{- end }}
+{{- if .Location }}
+LOCATION:{{ .Location }}
+{{- end }}
+DTSTAMP:{{ time now }}
+CREATED:{{ time now }}
 LAST-MODIFIED:{{ time now }}
-LOCATION:
 SEQUENCE:0
 STATUS:CONFIRMED
-SUMMARY:{{.Title}}
 TRANSP:OPAQUE
 END:VEVENT
 {{- end -}}
