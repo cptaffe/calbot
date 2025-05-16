@@ -20,4 +20,5 @@ RUN go build -v -o /usr/local/bin/calbot .
 
 COPY . .
 
+ENV TZ=America/Chicago
 CMD ["/usr/local/bin/calbot", "--templates=/usr/src/calbot/templates"]
