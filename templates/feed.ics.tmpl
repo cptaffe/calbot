@@ -17,7 +17,7 @@ REFRESH-INTERVAL;VALUE=DURATION:PT1H
 BEGIN:VEVENT
 UID:{{ uuid }}
 SUMMARY:{{ $event.Title }}
-DESCRIPTION:{{ escape $event.Body.String | wrap }}
+DESCRIPTION:{{ escape $event.Description | wrap }}
 DTSTART;VALUE=DATE-TIME;TZID=America/Chicago:{{ time .Start }}
 {{- if not .End.IsZero }}
 DTEND;VALUE=DATE-TIME;TZID=America/Chicago:{{ time .End }}
@@ -40,7 +40,7 @@ END:VEVENT
 BEGIN:VEVENT
 UID:{{ uuid }}
 SUMMARY:{{.Title}}
-DESCRIPTION:{{ escape .Body.String | wrap }}
+DESCRIPTION:{{ escape .Description | wrap }}
 DTSTART;VALUE=DATE;TZID=America/Chicago:{{ date .Dates.Start }}
 {{- if not .Dates.End.IsZero }}
 DTEND;VALUE=DATE;TZID=America/Chicago:{{ date .Dates.End }}

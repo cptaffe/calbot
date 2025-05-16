@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"golang.org/x/net/html"
 )
 
@@ -375,7 +376,7 @@ func finalize(events chan *Event) chan *Event {
 				event.Location = match[0][4]
 			}
 
-			event.Description = event.Body.String()
+			event.Description = strings.TrimSpace(event.Body.String())
 
 			if event.Dates.End.IsZero() {
 				date := event.Dates.Start
@@ -432,10 +433,14 @@ type Server struct {
 	templates *template.Template
 	mux       *http.ServeMux
 	client    http.Client
+	cache     *expirable.LRU[string, []*Event]
 }
 
 func NewServer(templates *template.Template) http.Handler {
-	s := &Server{templates: templates}
+	s := &Server{
+		templates: templates,
+		cache:     expirable.NewLRU[string, []*Event](10, nil, 15*time.Minute),
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /calbot/soiree/", s.Generate)
 	s.mux = mux
@@ -463,27 +468,30 @@ func (s *Server) Generate(w http.ResponseWriter, req *http.Request) {
 		t = t.AddDate(0, 0, int(time.Thursday-weekday)-7)
 	}
 
-	var client http.Client
-	req, err := http.NewRequestWithContext(
-		req.Context(),
-		http.MethodGet,
-		fmt.Sprintf("https://www.littlerocksoiree.com/little-rock-weekend-guide-%s-%d-%d/", strings.ToLower(t.Format("Jan")), t.Day(), t.Day()+3),
-		nil,
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-	req.Header.Add("User-Agent", "CalBot/1.0")
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer resp.Body.Close()
+	u := fmt.Sprintf("https://www.littlerocksoiree.com/little-rock-weekend-guide-%s-%d-%d/", strings.ToLower(t.Format("Jan")), t.Day(), t.Day()+3)
+	events, ok := s.cache.Get(u)
+	if !ok {
+		req, err := http.NewRequestWithContext(req.Context(), http.MethodGet, u, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+		req.Header.Add("User-Agent", "CalBot/1.0")
+		resp, err := s.client.Do(req)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer resp.Body.Close()
 
-	p := NewParser(t, resp.Body)
-	go p.Run()
+		p := NewParser(t, resp.Body)
+		go p.Run()
+		for event := range finalize(p.Events) {
+			events = append(events, event)
+		}
+		s.cache.Add(u, events)
+	}
+
 	w.Header().Add("Content-Type", "text/calendar")
-	err = s.templates.ExecuteTemplate(w, "feed.ics.tmpl", finalize(p.Events))
+	err := s.templates.ExecuteTemplate(w, "feed.ics.tmpl", events)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -509,7 +517,6 @@ func main() {
 			return strings.ReplaceAll(text, "\n", "\\n")
 		},
 		"wrap": func(text string) string {
-			text = strings.TrimSpace(text)
 			width := 58
 			prefix := len("DESCRIPTION:")
 			pad := ""
