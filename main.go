@@ -24,11 +24,11 @@ import (
 
 var (
 	eventPattern = regexp.MustCompile(`^(Thursday|Friday|Saturday|Sunday)([ 	]*(-|–|&) (Thursday|Friday|Saturday|Sunday))?,[ 	]*(January|February|March|April|May|June|July|August|September|October|November|December)[ 	]*([1-9][0-9]*)([ 	]*(-|–|&)[ 	]*?([1-9][0-9]*))?$`)
-	timePattern  = regexp.MustCompile(`([1-9][0-2]*(:[0-6][0-9])?([ 	]*((a|p).m.)?[ 	]*(-|–)[ 	]*([1-9][0-2]*(:[0-6][0-9])?))?[ 	]+(a|p).m.)|([1-9][0-2]*(:[0-6][0-9])?([ 	]*((a|p).m.)?[ 	]*(-|–)[ 	]*([1-9][0-2]*(:[0-6][0-9])?))?[ 	]+(a|p).m.)([ 	]+on)?[ 	]+(Thursday|Friday|Saturday|Sunday)|(Thursday|Friday|Saturday|Sunday).*at[ 	]+(([1-9][0-2]*(:[0-6][0-9])? (a|p).m.))`)
+	// timePattern  = regexp.MustCompile(`([1-9][0-2]*(:[0-6][0-9])?([ 	]*((a|p).m.)?[ 	]*(-|–)[ 	]*([1-9][0-2]*(:[0-6][0-9])?))?[ 	]+(a|p).m.)|([1-9][0-2]*(:[0-6][0-9])?([ 	]*((a|p).m.)?[ 	]*(-|–)[ 	]*([1-9][0-2]*(:[0-6][0-9])?))?[ 	]+(a|p).m.)([ 	]+on)?[ 	]+(Thursday|Friday|Saturday|Sunday)|(Thursday|Friday|Saturday|Sunday).*at[ 	]+(([1-9][0-2]*(:[0-6][0-9])? (a|p).m.))`)
 
-	singleDayTimePattern = regexp.MustCompile(`(([1-9][0-2]*(:[0-6][0-9])?)([ 	]*((a|p)\.?m\.?)?[ 	]*(-|–)[ 	]*([1-9][0-2]*(:[0-6][0-9])?))?[ 	]+(a|p)\.?m\.?)`)
+	singleDayTimePattern = regexp.MustCompile(`\b((([1-9]|1[0-2])(:[0-6][0-9])?)\s*((a|p)\.?m\.?)?|(noon|midnight))(\s*(-|–)\s*((([1-9]|1[0-2])(:[0-6][0-9])?)\s+((a|p)\.?m\.?)?|(noon|midnight)))?\b`)
 	linkTextPattern      = regexp.MustCompile(`Learn more here.?`)
-	locationTextPattern  = regexp.MustCompile(`(.*) (at|in) (the )?(.*)`)
+	locationTextPattern  = regexp.MustCompile(`(.*)\s+(at|in)\s+(the\s+)?(.*)$`)
 
 	templatesPath = flag.String("templates", "", "path to templates")
 	address       = flag.String("address", ":8080", "address to listen on, :8080 by default")
@@ -387,14 +387,66 @@ func finalize(events chan *Event) chan *Event {
 				date := event.Dates.Start
 				var times TimeRange
 				// Look for times or time ranges e.g. 7 p.m. or 11 a.m. - 6 p.m.
-				match := singleDayTimePattern.FindAllStringSubmatch(event.Description, 1)
+				match := singleDayTimePattern.FindAllStringSubmatch(event.Description, -1)
+				var (
+					st  string
+					sm  string
+					nst string
+					et  string
+					em  string
+					net string
+				)
+
 				if match != nil {
-					st := match[0][2]  // 3 or 3:04
-					sm := match[0][6]  // a or p or blank
-					et := match[0][8]  // 3 or 3:04
-					em := match[0][10] // a or p
+					var found bool
+					for i := range len(match) {
+						st = match[i][2]   // 3 or 3:04
+						sm = match[i][6]   // a or p or blank
+						nst = match[i][7]  // noon or midnight
+						et = match[i][11]  // 3 or 3:04
+						em = match[i][15]  // a or p
+						net = match[i][16] // noon or midnight
+
+						// Our regexp is too broad, it will match e.g. the word "9",
+						// here we check that there is either an a.m. or p.m. in the range,
+						// or a named time like noon or midnight
+						if sm != "" || em != "" || nst != "" || net != "" {
+							found = true
+							break
+						}
+					}
+					if !found {
+						match = nil
+					}
+				}
+
+				if match != nil {
+					// Convert named times to time + am/pm
+					switch nst {
+					case "noon":
+						st, sm = "12", "p"
+					case "midnight":
+						st, sm = "12", "a"
+					}
+					switch net {
+					case "noon":
+						et, em = "12", "p"
+					case "midnight":
+						et, em = "12", "a"
+					}
 					if sm == "" {
-						sm = em
+						// TODO: generalize based on event duration
+						// if end is noon or midnight and start is empty, am/pm are mismatched
+						if len(et) >= 2 && et[:2] == "12" {
+							switch em {
+							case "a":
+								sm = "p"
+							case "p":
+								sm = "a"
+							}
+						} else {
+							sm = em
+						}
 					}
 
 					parts := strings.SplitN(st, ":", 2)
