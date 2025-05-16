@@ -7,4 +7,7 @@ require (
 	golang.org/x/net v0.40.0
 )
 
-require github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
+require (
+	github.com/cptaffe/blog v0.0.0-20250507161732-83ea59b7a7c6 // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
+)

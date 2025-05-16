@@ -16,20 +16,25 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/cptaffe/blog/logging"
 	"github.com/google/uuid"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"golang.org/x/net/html"
 )
 
-var eventPattern = regexp.MustCompile(`^(Thursday|Friday|Saturday|Sunday)([ 	]*(-|–|&) (Thursday|Friday|Saturday|Sunday))?,[ 	]*(January|February|March|April|May|June|July|August|September|October|November|December)[ 	]*([1-9][0-9]*)([ 	]*(-|–|&)[ 	]*?([1-9][0-9]*))?$`)
-var timePattern = regexp.MustCompile(`([1-9][0-2]*(:[0-6][0-9])?([ 	]*((a|p).m.)?[ 	]*(-|–)[ 	]*([1-9][0-2]*(:[0-6][0-9])?))?[ 	]+(a|p).m.)|([1-9][0-2]*(:[0-6][0-9])?([ 	]*((a|p).m.)?[ 	]*(-|–)[ 	]*([1-9][0-2]*(:[0-6][0-9])?))?[ 	]+(a|p).m.)([ 	]+on)?[ 	]+(Thursday|Friday|Saturday|Sunday)|(Thursday|Friday|Saturday|Sunday).*at[ 	]+(([1-9][0-2]*(:[0-6][0-9])? (a|p).m.))`)
+var (
+	eventPattern = regexp.MustCompile(`^(Thursday|Friday|Saturday|Sunday)([ 	]*(-|–|&) (Thursday|Friday|Saturday|Sunday))?,[ 	]*(January|February|March|April|May|June|July|August|September|October|November|December)[ 	]*([1-9][0-9]*)([ 	]*(-|–|&)[ 	]*?([1-9][0-9]*))?$`)
+	timePattern  = regexp.MustCompile(`([1-9][0-2]*(:[0-6][0-9])?([ 	]*((a|p).m.)?[ 	]*(-|–)[ 	]*([1-9][0-2]*(:[0-6][0-9])?))?[ 	]+(a|p).m.)|([1-9][0-2]*(:[0-6][0-9])?([ 	]*((a|p).m.)?[ 	]*(-|–)[ 	]*([1-9][0-2]*(:[0-6][0-9])?))?[ 	]+(a|p).m.)([ 	]+on)?[ 	]+(Thursday|Friday|Saturday|Sunday)|(Thursday|Friday|Saturday|Sunday).*at[ 	]+(([1-9][0-2]*(:[0-6][0-9])? (a|p).m.))`)
 
-var singleDayTimePattern = regexp.MustCompile(`(([1-9][0-2]*(:[0-6][0-9])?)([ 	]*((a|p)\.?m\.?)?[ 	]*(-|–)[ 	]*([1-9][0-2]*(:[0-6][0-9])?))?[ 	]+(a|p)\.?m\.?)`)
-var linkTextPattern = regexp.MustCompile(`Learn more here.?`)
-var locationTextPattern = regexp.MustCompile(`(.*) (at|in) (the )?(.*)`)
+	singleDayTimePattern = regexp.MustCompile(`(([1-9][0-2]*(:[0-6][0-9])?)([ 	]*((a|p)\.?m\.?)?[ 	]*(-|–)[ 	]*([1-9][0-2]*(:[0-6][0-9])?))?[ 	]+(a|p)\.?m\.?)`)
+	linkTextPattern      = regexp.MustCompile(`Learn more here.?`)
+	locationTextPattern  = regexp.MustCompile(`(.*) (at|in) (the )?(.*)`)
 
-var templatesPath = flag.String("templates", "", "path to templates")
-var address = flag.String("address", ":8080", "address to listen on, :8080 by default")
+	templatesPath = flag.String("templates", "", "path to templates")
+	address       = flag.String("address", ":8080", "address to listen on, :8080 by default")
+
+	logger = log.Default()
+)
 
 type DateRange struct {
 	Start time.Time
@@ -540,7 +545,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	server := http.Server{Addr: *address, Handler: NewServer(templates)}
+	server := http.Server{Addr: *address, Handler: logging.NewLoggingHandler(NewServer(templates), logging.NewApacheLogger(logger))}
 
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
