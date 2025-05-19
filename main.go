@@ -367,6 +367,100 @@ func (p *Parser) IgnoreTag() ParserFunc {
 	}
 }
 
+func extractSingleDayTime(event *Event, date time.Time) (TimeRange, bool) {
+	var times TimeRange
+	// Look for times or time ranges e.g. 7 p.m. or 11 a.m. - 6 p.m.
+	match := singleDayTimePattern.FindAllStringSubmatch(event.Description, -1)
+	var (
+		st  string
+		sm  string
+		nst string
+		et  string
+		em  string
+		net string
+	)
+
+	if match != nil {
+		var found bool
+		for i := range len(match) {
+			st = match[i][2]   // 3 or 3:04
+			sm = match[i][6]   // a or p or blank
+			nst = match[i][7]  // noon or midnight
+			et = match[i][11]  // 3 or 3:04
+			em = match[i][15]  // a or p
+			net = match[i][16] // noon or midnight
+
+			// Our regexp is too broad, it will match e.g. the word "9",
+			// here we check that there is either an a.m. or p.m. in the range,
+			// or a named time like noon or midnight
+			if sm != "" || em != "" || nst != "" || net != "" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			match = nil
+		}
+	}
+
+	if match == nil {
+		return TimeRange{}, false
+	}
+	// Convert named times to time + am/pm
+	switch nst {
+	case "noon":
+		st, sm = "12", "p"
+	case "midnight":
+		st, sm = "12", "a"
+	}
+	switch net {
+	case "noon":
+		et, em = "12", "p"
+	case "midnight":
+		et, em = "12", "a"
+	}
+	if sm == "" {
+		// TODO: generalize based on event duration
+		// if end is noon or midnight and start is empty, am/pm are mismatched
+		if len(et) >= 2 && et[:2] == "12" {
+			switch em {
+			case "a":
+				sm = "p"
+			case "p":
+				sm = "a"
+			}
+		} else {
+			sm = em
+		}
+	}
+
+	parts := strings.SplitN(st, ":", 2)
+	if len(parts) == 1 {
+		st = parts[0] + ":00"
+	}
+	sf := fmt.Sprintf("%s %sM", st, strings.ToUpper(sm))
+	stime, err := time.Parse("3:04 PM", sf)
+	if err != nil {
+		log.Fatal(err)
+	}
+	times.Start = time.Date(date.Year(), date.Month(), date.Day(), stime.Hour(), stime.Minute(), stime.Second(), stime.Nanosecond(), date.Location())
+	if et == "" {
+		times.End = times.Start.Add(1 * time.Hour)
+	} else {
+		parts = strings.SplitN(et, ":", 2)
+		if len(parts) == 1 {
+			et = parts[0] + ":00"
+		}
+		ef := fmt.Sprintf("%s %sM", et, strings.ToUpper(em))
+		etime, err := time.Parse("3:04 PM", ef)
+		if err != nil {
+			log.Fatal(err)
+		}
+		times.End = time.Date(date.Year(), date.Month(), date.Day(), etime.Hour(), etime.Minute(), etime.Second(), etime.Nanosecond(), date.Location())
+	}
+	return times, true
+}
+
 func finalize(events chan *Event) chan *Event {
 	out := make(chan *Event)
 	go func() {
@@ -384,95 +478,8 @@ func finalize(events chan *Event) chan *Event {
 			event.Description = strings.TrimSpace(event.Body.String())
 
 			if event.Dates.End.IsZero() {
-				date := event.Dates.Start
-				var times TimeRange
-				// Look for times or time ranges e.g. 7 p.m. or 11 a.m. - 6 p.m.
-				match := singleDayTimePattern.FindAllStringSubmatch(event.Description, -1)
-				var (
-					st  string
-					sm  string
-					nst string
-					et  string
-					em  string
-					net string
-				)
-
-				if match != nil {
-					var found bool
-					for i := range len(match) {
-						st = match[i][2]   // 3 or 3:04
-						sm = match[i][6]   // a or p or blank
-						nst = match[i][7]  // noon or midnight
-						et = match[i][11]  // 3 or 3:04
-						em = match[i][15]  // a or p
-						net = match[i][16] // noon or midnight
-
-						// Our regexp is too broad, it will match e.g. the word "9",
-						// here we check that there is either an a.m. or p.m. in the range,
-						// or a named time like noon or midnight
-						if sm != "" || em != "" || nst != "" || net != "" {
-							found = true
-							break
-						}
-					}
-					if !found {
-						match = nil
-					}
-				}
-
-				if match != nil {
-					// Convert named times to time + am/pm
-					switch nst {
-					case "noon":
-						st, sm = "12", "p"
-					case "midnight":
-						st, sm = "12", "a"
-					}
-					switch net {
-					case "noon":
-						et, em = "12", "p"
-					case "midnight":
-						et, em = "12", "a"
-					}
-					if sm == "" {
-						// TODO: generalize based on event duration
-						// if end is noon or midnight and start is empty, am/pm are mismatched
-						if len(et) >= 2 && et[:2] == "12" {
-							switch em {
-							case "a":
-								sm = "p"
-							case "p":
-								sm = "a"
-							}
-						} else {
-							sm = em
-						}
-					}
-
-					parts := strings.SplitN(st, ":", 2)
-					if len(parts) == 1 {
-						st = parts[0] + ":00"
-					}
-					sf := fmt.Sprintf("%s %sM", st, strings.ToUpper(sm))
-					stime, err := time.Parse("3:04 PM", sf)
-					if err != nil {
-						log.Fatal(err)
-					}
-					times.Start = time.Date(date.Year(), date.Month(), date.Day(), stime.Hour(), stime.Minute(), stime.Second(), stime.Nanosecond(), date.Location())
-					if et == "" {
-						times.End = times.Start.Add(1 * time.Hour)
-					} else {
-						parts = strings.SplitN(et, ":", 2)
-						if len(parts) == 1 {
-							et = parts[0] + ":00"
-						}
-						ef := fmt.Sprintf("%s %sM", et, strings.ToUpper(em))
-						etime, err := time.Parse("3:04 PM", ef)
-						if err != nil {
-							log.Fatal(err)
-						}
-						times.End = time.Date(date.Year(), date.Month(), date.Day(), etime.Hour(), etime.Minute(), etime.Second(), etime.Nanosecond(), date.Location())
-					}
+				times, ok := extractSingleDayTime(event, event.Dates.Start)
+				if ok {
 					event.Times = append(event.Times, times)
 				}
 			} else {
