@@ -23,9 +23,7 @@ import (
 )
 
 var (
-	eventPattern = regexp.MustCompile(`^(Thursday|Friday|Saturday|Sunday)([ 	]*(-|–|&) (Thursday|Friday|Saturday|Sunday))?,[ 	]*(January|February|March|April|May|June|July|August|September|October|November|December)[ 	]*([1-9][0-9]*)([ 	]*(-|–|&)[ 	]*?([1-9][0-9]*))?$`)
-	// timePattern  = regexp.MustCompile(`([1-9][0-2]*(:[0-6][0-9])?([ 	]*((a|p).m.)?[ 	]*(-|–)[ 	]*([1-9][0-2]*(:[0-6][0-9])?))?[ 	]+(a|p).m.)|([1-9][0-2]*(:[0-6][0-9])?([ 	]*((a|p).m.)?[ 	]*(-|–)[ 	]*([1-9][0-2]*(:[0-6][0-9])?))?[ 	]+(a|p).m.)([ 	]+on)?[ 	]+(Thursday|Friday|Saturday|Sunday)|(Thursday|Friday|Saturday|Sunday).*at[ 	]+(([1-9][0-2]*(:[0-6][0-9])? (a|p).m.))`)
-
+	eventPattern         = regexp.MustCompile(`^(Thursday|Friday|Saturday|Sunday|Monday)([ 	]*(-|–|&) (Thursday|Friday|Saturday|Sunday|Monday))?,[ 	]*(January|February|March|April|May|June|July|August|September|October|November|December)[ 	]*([1-9][0-9]*)([ 	]*(-|–|&)[ 	]*?([1-9][0-9]*))?$`)
 	singleDayTimePattern = regexp.MustCompile(`\b((([1-9]|1[0-2])(:[0-6][0-9])?)\s*((a|p)\.?m\.?)?|(noon|midnight))(\s*(-|–)\s*((([1-9]|1[0-2])(:[0-6][0-9])?)\s+((a|p)\.?m\.?)?|(noon|midnight)))?\b`)
 	linkTextPattern      = regexp.MustCompile(`Learn more here.?`)
 	locationTextPattern  = regexp.MustCompile(`(.*)\s+(at|in)\s+(the\s+)?(.*)$`)
@@ -91,14 +89,16 @@ func (p *Parser) SetDates(start, end string) {
 
 func parseWeekday(weekday string) int {
 	switch strings.ToLower(weekday) {
-	case "sunday":
-		return 3
 	case "thursday":
 		return 0
 	case "friday":
 		return 1
 	case "saturday":
 		return 2
+	case "sunday":
+		return 3
+	case "monday":
+		return 4
 	default:
 		panic(weekday)
 	}
@@ -532,9 +532,32 @@ func (s *Server) Generate(w http.ResponseWriter, req *http.Request) {
 		t = t.AddDate(0, 0, int(time.Thursday-weekday)-7)
 	}
 
-	u := fmt.Sprintf("https://www.littlerocksoiree.com/little-rock-weekend-guide-%s-%d-%d/", strings.ToLower(t.Format("Jan")), t.Day(), t.Day()+3)
-	events, ok := s.cache.Get(u)
-	if !ok {
+	pt := t.AddDate(0, 0, -7) // last week's
+
+	candidates := make(chan string)
+	go func() {
+		defer close(candidates)
+		for _, t := range []time.Time{t, pt} {
+			candidates <- fmt.Sprintf("little-rock-weekend-guide-%s-%d-%d/", strings.ToLower(t.Format("Jan")), t.Day(), t.Day()+3)
+			candidates <- fmt.Sprintf("memorial-day-weekend-guide-%s-%d-%d/", strings.ToLower(t.Format("Jan")), t.Day(), t.Day()+4)
+		}
+	}()
+
+	var events []*Event
+	for candidate := range candidates {
+		u := "https://www.littlerocksoiree.com/" + candidate
+
+		var ok bool
+		events, ok = s.cache.Get(u)
+		if ok {
+			w.Header().Add("Content-Type", "text/calendar")
+			err := s.templates.ExecuteTemplate(w, "feed.ics.tmpl", events)
+			if err != nil {
+				log.Fatal(err)
+			}
+			return
+		}
+
 		req, err := http.NewRequestWithContext(req.Context(), http.MethodGet, u, nil)
 		if err != nil {
 			log.Fatal(err)
@@ -546,19 +569,33 @@ func (s *Server) Generate(w http.ResponseWriter, req *http.Request) {
 		}
 		defer resp.Body.Close()
 
+		switch resp.StatusCode {
+		case http.StatusOK:
+		case http.StatusNotFound:
+			continue
+		default:
+			log.Printf("could not fetch %s, returned %s", u, http.StatusText(resp.StatusCode))
+			http.Error(w, "Failed to fetch Weekend Guide", http.StatusInternalServerError)
+			return
+		}
+
 		p := NewParser(t, resp.Body)
 		go p.Run()
 		for event := range finalize(p.Events) {
 			events = append(events, event)
 		}
 		s.cache.Add(u, events)
+		w.Header().Add("Content-Type", "text/calendar")
+		err = s.templates.ExecuteTemplate(w, "feed.ics.tmpl", events)
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
 	}
 
-	w.Header().Add("Content-Type", "text/calendar")
-	err := s.templates.ExecuteTemplate(w, "feed.ics.tmpl", events)
-	if err != nil {
-		log.Fatal(err)
-	}
+	log.Printf("no candidates could be fetched")
+	http.Error(w, "Failed to fetch Weekend Guide", http.StatusInternalServerError)
+	return
 }
 
 func main() {
