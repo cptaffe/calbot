@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	eventPattern         = regexp.MustCompile(`^(Thursday|Friday|Saturday|Sunday|Monday)([ 	]*(-|–|&) (Thursday|Friday|Saturday|Sunday|Monday))?,[ 	]*(January|February|March|April|May|June|July|August|September|October|November|December)[ 	]*([1-9][0-9]*)([ 	]*(-|–|&)[ 	]*?([1-9][0-9]*))?$`)
+	eventPattern         = regexp.MustCompile(`^(Thursday|Friday|Saturday|Sunday|Monday)([ 	]*(-|–|&) (Thursday|Friday|Saturday|Sunday|Monday))?,[ 	]*(Jan.|Feb.|March|April|May|June|July|Aug.|Sept.|Oct.|Nov.|Dec.)[ 	]*([1-9][0-9]*)([ 	]*(-|–|&)[ 	]*?([1-9][0-9]*))?$`)
 	singleDayTimePattern = regexp.MustCompile(`\b((([1-9]|1[0-2])(:[0-6][0-9])?)\s*((a|p)\.?m\.?)?|(noon|midnight))(\s*(-|–)\s*((([1-9]|1[0-2])(:[0-6][0-9])?)\s+((a|p)\.?m\.?)?|(noon|midnight)))?\b`)
 	linkTextPattern      = regexp.MustCompile(`Learn more here.?`)
 	locationTextPattern  = regexp.MustCompile(`(.*)\s+(at|in)\s+(the\s+)?(.*)$`)
@@ -70,7 +70,10 @@ func NewParser(time time.Time, r io.Reader) *Parser {
 }
 
 func (p *Parser) Run() {
-	for f := p.ParseRoot; f != nil; f = f() {
+	current := p.ParseRoot
+	for current != nil {
+		next := current()
+		current = next
 	}
 	close(p.Events)
 }
